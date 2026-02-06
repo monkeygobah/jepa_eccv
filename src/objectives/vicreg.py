@@ -9,7 +9,7 @@ import torch.nn.functional as F
 from src.projectors import ProjectorCfg, MLPProjector, gap_pool  
 import torch.distributed as dist
 from torch.distributed.nn.functional import all_gather
-from simclr import _GatherLayer
+from src.objectives.simclr import _GatherLayer
 
 def _get_feat_out(y):
     return y["out"] if isinstance(y, dict) else y
@@ -71,18 +71,12 @@ class VICRegObjective(nn.Module):
 
         x1 = vs[:, 0]
         x2 = vs[:, 1]
+        x  = torch.cat([x1, x2], dim=0)
+        f = _get_feat_out(encoder(x))
+        h = gap_pool(f)
+        z = self.projector(h)
+        z1, z2 = z[:bs], z[bs:]
 
-        # Encode -> pooled features -> projected embeddings
-        f1 = _get_feat_out(encoder(x1))
-        f2 = _get_feat_out(encoder(x2))
-
-        h1 = gap_pool(f1)  # (bs, 2048)
-        h2 = gap_pool(f2)
-
-        z1 = self.projector(h1)  # (bs, D)
-        z2 = self.projector(h2)
-
-        # Optionally gather across GPUs for correct batch statistics
         if self.gather:
             z1g = _gather_cat_autograd(z1)
             z2g = _gather_cat_autograd(z2)

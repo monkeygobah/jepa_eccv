@@ -23,7 +23,10 @@ import os
 import torch
 import torch.distributed as dist
 
-from src.objectives.lejepa import LeJEPAObjective,VICRegObjective,SimCLRObjective,BYOLObjective
+from src.objectives.simclr import CrossViewInfoNCEObjective
+from src.objectives.vicreg import VICRegObjective
+from src.objectives.byol import BYOLObjective
+from src.objectives.lejepa import LeJEPAObjective
 
 '''
 GENERIC SSL LOADER
@@ -43,6 +46,8 @@ def ddp_init():
 
 
 def main(args):
+    torch.backends.cudnn.enabled = False
+
     device, rank, world_size, local_rank, is_main = ddp_init()
     cfg, paths, rp = init_run(args,is_main)
 
@@ -80,7 +85,7 @@ def main(args):
     elif cfg["ssl"]["method"] == "vicreg":
         objective = VICRegObjective(cfg).to(device)
     elif cfg["ssl"]["method"] == "simclr":
-        objective = SimCLRObjective(cfg).to(device)
+        objective = CrossViewInfoNCEObjective(cfg).to(device)
     elif cfg["ssl"]["method"] == "byol":
         objective = BYOLObjective(cfg).to(device)
     else:
@@ -89,11 +94,18 @@ def main(args):
     # wrap objective ONCE
     objective = DDP(objective, device_ids=[local_rank], output_device=local_rank)
 
+    # if is_main:
+    #     print(objective.module.projector)  # or objective.projector if not wrapped yet
+
 
     # encoder
     encoder = load_encoder_backbone(init=init, seg_ckpt=cfg["model"].get("seg_ckpt")).to(device)
-    if cfg["ssl"]["method"] == "byol":
+    if cfg["ssl"]["method"] in ("byol", "simclr", "vicreg"):
         encoder = torch.nn.SyncBatchNorm.convert_sync_batchnorm(encoder)
+
+
+
+
     encoder = DDP(encoder, device_ids=[local_rank], output_device=local_rank)
 
     # BYOL: init target encoder ONCE (after DDP wrap)
@@ -144,6 +156,7 @@ def main(args):
             it = tqdm(dl, total=len(dl), desc=f"epoch {epoch}")
 
         for vs, _ in it:
+            torch.autograd.set_detect_anomaly(True)
 
             if step >= total_steps:
                 break

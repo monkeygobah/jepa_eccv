@@ -97,6 +97,7 @@ def main(args):
         layers=int(cfg["model"]["proj_layers"]),
     )
     projector = MLPProjector(proj_cfg).to(device)
+
     projector.train()
 
     encoder = DDP(encoder, device_ids=[local_rank], output_device=local_rank)

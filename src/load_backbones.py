@@ -7,7 +7,9 @@ from torchvision.models.segmentation import DeepLabV3_ResNet101_Weights
 from torchvision.models import resnet101
 
 
-def load_segmentation_encoder(ckpt_path = "hp_tune.pth"):
+
+
+def load_segmentation_encoder(ckpt_path="hp_tune.pth"):
     model = deeplabv3_resnet101(weights=DeepLabV3_ResNet101_Weights.DEFAULT)
     model.classifier[4] = nn.Conv2d(256, 6, kernel_size=1)
     state = torch.load(ckpt_path, map_location="cpu")
@@ -17,7 +19,7 @@ def load_segmentation_encoder(ckpt_path = "hp_tune.pth"):
 
 def load_resnet101_encoder(pretrained: bool = False):
     model = resnet101(weights=None if not pretrained else "IMAGENET1K_V1")
-    encoder = nn.Sequential(*list(model.children())[:-2])  # conv features only
+    encoder = nn.Sequential(*list(model.children())[:-2])
     return encoder
 
 
@@ -29,3 +31,4 @@ def load_encoder_backbone(init, seg_ckpt = None,):
     if init == "random":
         return load_resnet101_encoder(pretrained=False)
     raise ValueError(f"Unknown encoder init mode: {init}")
+
