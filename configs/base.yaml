@@ -1,0 +1,25 @@
+run:
+  name: "debug"
+  seed: 2026
+
+data:
+  dataset: "cfc_split"
+  root: "/workspace/data/cfc_split"
+  image_size: 256
+
+dataloader:
+  batch_size: 128
+  num_workers: 8
+  shuffle: true
+  pin_memory: true
+
+model:
+  backbone: "resnet101"
+  init: "seg_init" # imagenet or seg_init
+  seg_ckpt: "/workspace/models/hp_tune.pth"
+
+
+embed:
+  max_batches: 3        
+  pool: "4x4"             
+  save_npz: true

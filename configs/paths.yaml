@@ -1,0 +1,5 @@
+paths:
+  project_root: "/workspace"
+  data_root: "/workspace/data"
+  runs_root: "/workspace/runs"
+  models_root : "/workspace/models/"
