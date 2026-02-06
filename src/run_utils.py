@@ -55,18 +55,18 @@ def save_config(cfg, run_dir):
         yaml.safe_dump(cfg, f, sort_keys=False)
 
 
-def save_checkpoint(ckpt_dir, step, encoder, projector, opt, scheduler=None, scaler=None):
+def save_checkpoint(ckpt_dir, step, encoder, objective, opt, scheduler=None, scaler=None):
 
     ckpt_dir = Path(ckpt_dir)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     enc = encoder.module if hasattr(encoder, "module") else encoder
-    proj = projector.module if hasattr(projector, "module") else projector
+    obj = objective.module if hasattr(objective, "module") else objective   
 
     ckpt = {
         "step": int(step),
         "encoder": enc.state_dict(),
-        "projector": proj.state_dict(),
+        "objective": obj.state_dict(),
         "opt": opt.state_dict(),
         "scheduler": scheduler.state_dict() if scheduler is not None else None,
         "scaler": scaler.state_dict() if scaler is not None else None,
