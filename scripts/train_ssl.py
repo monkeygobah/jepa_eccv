@@ -252,8 +252,8 @@ if __name__ == "__main__":
     ap.add_argument("--cfg", required=True)
     ap.add_argument("--paths", default='configs/paths.yaml')
     ap.add_argument("--gpu", default=0, type=int)    
-    ap.add_argument("--resume", action='store_true')
-    ap.add_argument("--ckpt", type='str')
+    ap.add_argument("--ckpt", type=str, default=None, help="Path to checkpoint to resume from")
+    ap.add_argument("--resume", action="store_true", help="Resume training from --ckpt")
 
     args = ap.parse_args()
     main(args)
