@@ -252,7 +252,7 @@ if __name__ == "__main__":
     ap.add_argument("--cfg", required=True)
     ap.add_argument("--paths", default='configs/paths.yaml')
     ap.add_argument("--gpu", default=0, type=int)    
-    ap.add_argument("--resume", type='store_true')
+    ap.add_argument("--resume", action='store_true')
     ap.add_argument("--ckpt", type='str')
 
     args = ap.parse_args()
