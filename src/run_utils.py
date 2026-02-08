@@ -7,6 +7,9 @@ from datetime import datetime
 import json
 import yaml
 import torch
+from pathlib import Path
+import re
+
 
 @dataclass(frozen=True)
 class RunPaths:
@@ -55,7 +58,7 @@ def save_config(cfg, run_dir):
         yaml.safe_dump(cfg, f, sort_keys=False)
 
 
-def save_checkpoint(ckpt_dir, step, encoder, objective, opt, scheduler=None, scaler=None):
+def save_checkpoint(ckpt_dir, step, encoder, objective, opt, epoch, scheduler=None, scaler=None):
 
     ckpt_dir = Path(ckpt_dir)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
@@ -65,6 +68,7 @@ def save_checkpoint(ckpt_dir, step, encoder, objective, opt, scheduler=None, sca
 
     ckpt = {
         "step": int(step),
+        "epoch": int(epoch),
         "encoder": enc.state_dict(),
         "objective": obj.state_dict(),
         "opt": opt.state_dict(),
@@ -75,3 +79,33 @@ def save_checkpoint(ckpt_dir, step, encoder, objective, opt, scheduler=None, sca
     out = ckpt_dir / f"ckpt_step_{step:07d}.pth"
     torch.save(ckpt, out)
 
+    
+def load_checkpoint(path, encoder, objective, opt, scheduler=None, scaler=None, device=None):
+    ckpt = torch.load(path, map_location="cpu")
+
+    enc = encoder.module if hasattr(encoder, "module") else encoder
+    obj = objective.module if hasattr(objective, "module") else objective
+
+    enc.load_state_dict(ckpt["encoder"], strict=True)
+    obj.load_state_dict(ckpt["objective"], strict=True)
+
+    opt.load_state_dict(ckpt["opt"])
+    if device is not None:
+        optimizer_to_device(opt, device)
+
+    if scheduler is not None and ckpt.get("scheduler") is not None:
+        scheduler.load_state_dict(ckpt["scheduler"])
+    if scaler is not None and ckpt.get("scaler") is not None:
+        scaler.load_state_dict(ckpt["scaler"])
+
+    step0 = int(ckpt.get("step", 0))
+    epoch0 = int(ckpt.get("epoch", 0))
+    return step0, epoch0
+
+
+
+def optimizer_to_device(opt, device):
+    for state in opt.state.values():
+        for k, v in state.items():
+            if torch.is_tensor(v):
+                state[k] = v.to(device, non_blocking=True)

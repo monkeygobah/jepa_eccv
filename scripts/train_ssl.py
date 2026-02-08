@@ -10,7 +10,7 @@ from torch.optim.lr_scheduler import LinearLR, CosineAnnealingLR, SequentialLR
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from src.run_utils import save_checkpoint
+from src.run_utils import *
 from src.config_utils import init_run
 from src.dataset_utils import CFCSplitDataset
 from src.load_backbones import load_encoder_backbone
@@ -44,14 +44,6 @@ def ddp_init():
     return device, rank, world_size, local_rank, is_main
 
 
-def load_checkpoint(path, encoder, objective, opt, scheduler, scaler):
-    ckpt = torch.load(path, map_location="cpu")
-    (encoder.module if hasattr(encoder,"module") else encoder).load_state_dict(ckpt["encoder"])
-    (objective.module if hasattr(objective,"module") else objective).load_state_dict(ckpt["objective"])
-    opt.load_state_dict(ckpt["opt"])
-    if scheduler and ckpt.get("scheduler"): scheduler.load_state_dict(ckpt["scheduler"])
-    if scaler and ckpt.get("scaler"): scaler.load_state_dict(ckpt["scaler"])
-    return int(ckpt["step"])
 
 
 def main(args):
@@ -110,7 +102,9 @@ def main(args):
 
         # encoder
         encoder = load_encoder_backbone(init=init, seg_ckpt=cfg["model"].get("seg_ckpt")).to(device)
-        if cfg["ssl"]["method"] in ("byol", "simclr", "vicreg"):
+        
+        # , "simclr", "vicreg"
+        if cfg["ssl"]["method"] in ("byol"):
             encoder = torch.nn.SyncBatchNorm.convert_sync_batchnorm(encoder)
 
 
@@ -156,6 +150,26 @@ def main(args):
 
         step = 0
         epoch = 0
+
+
+
+        if args.resume:
+            if args.ckpt is None:
+                raise ValueError("--resume requires --ckpt PATH")
+
+            # All ranks load the same explicit path
+            step, epoch = load_checkpoint(
+                args.ckpt,
+                encoder=encoder,
+                objective=objective,
+                opt=opt,
+                scheduler=scheduler,
+                scaler=scaler,
+                device=device,
+            )
+
+            if is_main:
+                print(f"Resumed from {args.ckpt} at step={step}, epoch={epoch}")
 
         while step < total_steps:
             encoder.train(); objective.train()
@@ -218,6 +232,7 @@ def main(args):
                         encoder=encoder,
                         objective=objective,
                         opt=opt,
+                        epoch=epoch,
                         scheduler=scheduler,
                         scaler=scaler,
                     )
@@ -238,6 +253,7 @@ if __name__ == "__main__":
     ap.add_argument("--paths", default='configs/paths.yaml')
     ap.add_argument("--gpu", default=0, type=int)    
     ap.add_argument("--resume", type='store_true')
+    ap.add_argument("--ckpt", type='str')
 
     args = ap.parse_args()
     main(args)
