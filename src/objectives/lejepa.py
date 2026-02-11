@@ -14,10 +14,18 @@ def lejepa_sim_loss(proj_bvk):
 def get_feat_out(y):
     return y["out"] if isinstance(y, Mapping) else y
 
+import os
 
 class LeJEPAObjective(nn.Module):
     def __init__(self, cfg):
         super().__init__()
+
+
+        # print(int(cfg["ssl"]["view_chunk"]))
+        # rank = int(os.environ.get("RANK", "0"))
+        # if rank == 0:
+        #     print(f"[LeJEPAObjective.__init__] view_chunk={cfg['ssl']['view_chunk']}", flush=True)
+
 
         proj_cfg = ProjectorCfg(
             in_dim=2048,
@@ -35,6 +43,10 @@ class LeJEPAObjective(nn.Module):
         )
 
         self.lamb = float(cfg["loss"]["lamb"])
+
+        ## added to allow more more views and avoid OOM issues
+        self.view_chunk = int(cfg["ssl"]["view_chunk"])  
+
 
     def forward(self, encoder, vs):
         # vs: (bs, V, C, H, W)
@@ -60,3 +72,33 @@ class LeJEPAObjective(nn.Module):
         }
 
         return loss, logs
+
+
+    # def forward(self, encoder, vs):
+    #         # vs: (bs, V, C, H, W)
+    #         bs, V, C, H, W = vs.shape
+    #         embs = []
+    #         for v0 in range(0, V, self.view_chunk):
+    #             v1 = min(V, v0 + self.view_chunk)
+    #             x = vs[:, v0:v1].reshape(bs * (v1 - v0), C, H, W)
+
+    #             feat = get_feat_out(encoder(x))
+    #             emb = gap_pool(feat)                       # (bs*(v1-v0), 2048)
+    #             emb = emb.view(bs, (v1 - v0), -1)          # (bs, chunk, 2048)
+    #             embs.append(emb)
+
+    #         emb_bvk = torch.cat(embs, dim=1)               # (bs, V, 2048)
+
+    #         proj = self.projector(emb_bvk.reshape(bs * V, -1))
+    #         proj_bvk = proj.view(bs, V, -1)
+
+    #         sim = lejepa_sim_loss(proj_bvk)
+    #         sr = self.sigreg(proj_bvk)
+    #         loss = (1.0 - self.lamb) * sim + self.lamb * sr
+
+    #         logs = {"loss": loss, "sim": sim, "sigreg": sr, "V": V}
+    #         return loss, logs
+
+
+
+     

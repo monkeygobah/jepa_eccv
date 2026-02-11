@@ -5,13 +5,7 @@ import torch.nn as nn
 
 
 class SIGReg(nn.Module):
-    """
-    Sketched Isotropic Gaussian Regularization (demo implementation).
 
-    Expects proj shaped like (V, bs, K) OR (bs, V, K) OR (N, K).
-    Internally flattens samples to (N, K), samples random unit slices A,
-    computes ECF discrepancy to N(0,1) via cos/sin, integrates with quadrature.
-    """
     def __init__(self, knots: int = 17, t_max: float = 3.0, num_slices: int = 256):
         super().__init__()
         t = torch.linspace(0.0, t_max, knots, dtype=torch.float32)

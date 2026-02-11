@@ -45,6 +45,16 @@ def ddp_init():
 
 
 
+def _rank0():
+    return int(os.environ.get("RANK", "0")) == 0
+
+def _mem(tag, device):
+    if _rank0() and device.type == "cuda":
+        torch.cuda.synchronize(device)
+        alloc = torch.cuda.memory_allocated(device) / 1024**3
+        reserved = torch.cuda.memory_reserved(device) / 1024**3
+        max_alloc = torch.cuda.max_memory_allocated(device) / 1024**3
+        print(f"[mem:{tag}] alloc={alloc:.2f}G reserved={reserved:.2f}G max_alloc={max_alloc:.2f}G", flush=True)
 
 def main(args):
     # torch.backends.cudnn.enabled = False
@@ -180,18 +190,30 @@ def main(args):
                 it = tqdm(dl, total=len(dl), desc=f"epoch {epoch}")
 
             for vs, _ in it:
-                torch.autograd.set_detect_anomaly(True)
+                # torch.autograd.set_detect_anomaly(True)
 
                 if step >= total_steps:
                     break
+                
+                # ## added to debug OOM
+                # _mem("start_iter", device)
+
+                # if _rank0():
+                #     bs, V, C, H, W = vs.shape
+                #     print(f"[batch] vs.shape={vs.shape} approx_cpu_tensor={(vs.numel()*vs.element_size())/1024**2:.1f}MB", flush=True)
 
                 vs = vs.to(device, non_blocking=True)
+                
+                # _mem("after_to", device)
 
 
                 opt.zero_grad(set_to_none=True)
 
                 with autocast(device_type='cuda', dtype=autocast_dtype, enabled=amp_enabled):
                     loss, logs = objective(encoder, vs)
+                
+                
+                # _mem("after_forward", device)
 
                 if scaler.is_enabled():
                     scaler.scale(loss).backward()
