@@ -49,11 +49,6 @@ class LeJEPAObjective(nn.Module):
 
         self.lamb = float(cfg["loss"]["lamb"])
 
-        ## added to allow more more views and avoid OOM issues
-        self.view_chunk = int(cfg["ssl"]["view_chunk"])  
-
-
-
 
     def forward(self, encoder, vs):
         if isinstance(vs, (list, tuple)):

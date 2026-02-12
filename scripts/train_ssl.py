@@ -214,19 +214,11 @@ def main(args):
                 it = tqdm(dl, total=len(dl), desc=f"epoch {epoch}")
 
             for vs, _ in it:
-                # torch.autograd.set_detect_anomaly(True)
-                # torch.autograd.set_detect_anomaly(True)
+
 
                 if step >= total_steps:
                     break
                 
-                # ## added to debug OOM
-                # _mem("start_iter", device)
-
-                # if _rank0():
-                #     bs, V, C, H, W = vs.shape
-                #     print(f"[batch] vs.shape={vs.shape} approx_cpu_tensor={(vs.numel()*vs.element_size())/1024**2:.1f}MB", flush=True)
-
                 if cfg["ssl"].get("aug_mode", "local_only") == "multicrop":
                     vs = [v.to(device, non_blocking=True) for v in vs]  
                 else:
@@ -238,8 +230,6 @@ def main(args):
                     loss, logs = objective(encoder, vs)
                 
                 
-                # _mem("after_forward", device)
-
                 if scaler.is_enabled():
                     scaler.scale(loss).backward()
                     scaler.step(opt)
