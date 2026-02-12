@@ -19,10 +19,18 @@ def lejepa_sim_loss(proj_bvk):
 def get_feat_out(y):
     return y["out"] if isinstance(y, Mapping) else y
 
+import os
 
 class LeJEPAObjective(nn.Module):
     def __init__(self, cfg):
         super().__init__()
+
+
+        # print(int(cfg["ssl"]["view_chunk"]))
+        # rank = int(os.environ.get("RANK", "0"))
+        # if rank == 0:
+        #     print(f"[LeJEPAObjective.__init__] view_chunk={cfg['ssl']['view_chunk']}", flush=True)
+
 
         proj_cfg = ProjectorCfg(
             in_dim=2048,
@@ -40,6 +48,10 @@ class LeJEPAObjective(nn.Module):
         )
 
         self.lamb = float(cfg["loss"]["lamb"])
+
+        ## added to allow more more views and avoid OOM issues
+        self.view_chunk = int(cfg["ssl"]["view_chunk"])  
+
 
 
 
