@@ -5,3 +5,4 @@ lejepa.log
 configs/
 __pycache__/
 *.pyc
+_logs

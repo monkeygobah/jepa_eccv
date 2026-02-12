@@ -15,7 +15,7 @@ from src.config_utils import init_run
 from src.dataset_utils import CFCSplitDataset
 from src.load_backbones import load_encoder_backbone
 
-from src.transforms import LocalViewsCfg, build_local_views_transform,collate_views_with_meta
+from src.transforms import LocalViewsCfg, build_local_views_transform,collate_views_with_meta, MultiCropCfg, ViewAugCfg, build_multicrop_transform, collate_multicrop_with_meta
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 
@@ -27,7 +27,8 @@ import torch.distributed as dist
 from src.objectives.simclr import CrossViewInfoNCEObjective
 from src.objectives.vicreg import VICRegObjective
 from src.objectives.byol import BYOLObjective
-from src.objectives.lejepa import LeJEPAObjective
+from src.objectives.lejepa import LeJEPAObjective, get_feat_out, gap_pool
+import torch.nn as nn
 
 '''
 GENERIC SSL LOADER
@@ -45,6 +46,13 @@ def ddp_init():
 
 
 
+def disable_running_stats(model: nn.Module) -> None:
+    for m in model.modules():
+        if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.SyncBatchNorm)):
+            m.track_running_stats = False
+            m.running_mean = None
+            m.running_var = None
+
 
 def main(args):
     # torch.backends.cudnn.enabled = False
@@ -56,15 +64,52 @@ def main(args):
         torch.manual_seed(int(cfg["run"]["seed"]))
 
 
-        tcfg = LocalViewsCfg(
-            V=int(cfg["ssl"]["V"]),
-            crop_size=int(cfg["ssl"]["crop_size"]),
-            scale_min=float(cfg["ssl"]["crop_scale_min"]),
-            scale_max=float(cfg["ssl"]["crop_scale_max"]),
-            normalize_imagenet=bool(cfg["ssl"]["normalize_imagenet"]),
-        )
+        # tcfg = LocalViewsCfg(
+        #     V=int(cfg["ssl"]["V"]),
+        #     crop_size=int(cfg["ssl"]["crop_size"]),
+        #     scale_min=float(cfg["ssl"]["crop_scale_min"]),
+        #     scale_max=float(cfg["ssl"]["crop_scale_max"]),
+        #     normalize_imagenet=bool(cfg["ssl"]["normalize_imagenet"]),
+        # )
+        # transform = build_local_views_transform(tcfg)
 
-        transform = build_local_views_transform(tcfg)
+
+        aug_mode = cfg["ssl"].get("aug_mode", "local_only") 
+
+
+
+        if aug_mode == "local_only":
+            tcfg = LocalViewsCfg(
+                V=int(cfg["ssl"]["V"]),
+                crop_size=int(cfg["ssl"]["crop_size"]),
+                scale_min=float(cfg["ssl"]["crop_scale_min"]),
+                scale_max=float(cfg["ssl"]["crop_scale_max"]),
+                normalize_imagenet=bool(cfg["ssl"]["normalize_imagenet"]),
+            )
+            transform = build_local_views_transform(tcfg)
+            collate_fn = collate_views_with_meta
+
+        elif aug_mode == "multicrop":
+            gcfg = ViewAugCfg(
+                V=int(cfg["ssl"]["global_V"]),              # set to 2 in yaml
+                crop_size=int(cfg["ssl"]["global_crop"]),   # e.g. 224
+                scale_min=float(cfg["ssl"]["global_scale_min"]),
+                scale_max=float(cfg["ssl"]["global_scale_max"]),
+                normalize_imagenet=bool(cfg["ssl"]["normalize_imagenet"]),
+            )
+            lcfg = ViewAugCfg(
+                V=int(cfg["ssl"]["local_V"]),               # set to 6 in yaml
+                crop_size=int(cfg["ssl"]["local_crop"]),    # e.g. 96
+                scale_min=float(cfg["ssl"]["local_scale_min"]),
+                scale_max=float(cfg["ssl"]["local_scale_max"]),
+                normalize_imagenet=bool(cfg["ssl"]["normalize_imagenet"]),
+            )
+            mcfg = MultiCropCfg(global_=gcfg, local=lcfg)
+            transform = build_multicrop_transform(mcfg)
+            collate_fn = collate_multicrop_with_meta
+
+        else:
+            raise ValueError(f"Unknown ssl.aug_mode: {aug_mode}")
 
         ds = CFCSplitDataset(root=cfg["data"]["root"], transform=transform)
         sampler = DistributedSampler(ds, shuffle=True)
@@ -75,7 +120,7 @@ def main(args):
             num_workers=int(cfg["dataloader"]["num_workers"]),
             pin_memory=bool(cfg["dataloader"]["pin_memory"]),
             drop_last=bool(cfg["dataloader"]["drop_last"]),
-            collate_fn=collate_views_with_meta,
+            collate_fn=collate_fn,
         )
 
         init = cfg["model"]["init"]
@@ -93,23 +138,12 @@ def main(args):
         else:
             raise ValueError(f"Unknown ssl.method: {cfg['ssl']['method']}")
 
-        # wrap objective ONCE
-        objective = DDP(objective, device_ids=[local_rank], output_device=local_rank)
-
-        # if is_main:
-        #     print(objective.module.projector)  # or objective.projector if not wrapped yet
-
-
-        # encoder
         encoder = load_encoder_backbone(init=init, seg_ckpt=cfg["model"].get("seg_ckpt")).to(device)
         
-        # , "simclr", "vicreg"
-        if cfg["ssl"]["method"] in ("byol"):
-            encoder = torch.nn.SyncBatchNorm.convert_sync_batchnorm(encoder)
 
+        disable_running_stats(encoder)
 
-
-
+        objective = DDP(objective, device_ids=[local_rank], output_device=local_rank)
         encoder = DDP(encoder, device_ids=[local_rank], output_device=local_rank)
 
         # BYOL: init target encoder ONCE (after DDP wrap)
@@ -180,13 +214,15 @@ def main(args):
                 it = tqdm(dl, total=len(dl), desc=f"epoch {epoch}")
 
             for vs, _ in it:
-                torch.autograd.set_detect_anomaly(True)
+                # torch.autograd.set_detect_anomaly(True)
 
                 if step >= total_steps:
                     break
 
-                vs = vs.to(device, non_blocking=True)
-
+                if cfg["ssl"].get("aug_mode", "local_only") == "multicrop":
+                    vs = [v.to(device, non_blocking=True) for v in vs]  
+                else:
+                    vs = vs.to(device, non_blocking=True)             
 
                 opt.zero_grad(set_to_none=True)
 
@@ -212,7 +248,7 @@ def main(args):
                     rec = {
                         "step": step,
                         "lr": float(opt.param_groups[0]["lr"]),
-                        "bs": int(vs.shape[0]),
+                        "bs": int(vs[0].shape[0]) if isinstance(vs, (list, tuple)) else int(vs.shape[0]),
                     }
 
                     for k, v in logs.items():
